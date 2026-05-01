@@ -34,14 +34,12 @@ function formatCurrency(amount: number) {
 }
 
 function formatDate(dateStr: string) {
-  // dateStr is "YYYY-MM-DD"
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(year, month - 1, day)
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-function getMonthLabel(dateStr: string) {
-  const [year, month] = dateStr.split('-').map(Number)
+function getMonthLabel(year: number, month: number) {
   const date = new Date(year, month - 1, 1)
   return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 }
@@ -74,32 +72,60 @@ export default function DashboardClient({ user, initialExpenses, initialError }:
   const [savingEdit, setSavingEdit] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  // ─── Selected Month State (NEW) ───────────────────────────────────────────
+  const now = new Date()
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1) // 1-12
+
   const todayISO = getTodayISO()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
 
-  // ─── Monthly Summary ──────────────────────────────────────────────────────
+  const isCurrentMonth = selectedYear === currentYear && selectedMonth === currentMonth
+
+  // ─── Month Navigation (NEW) ───────────────────────────────────────────────
+  const goToPrevMonth = () => {
+    if (selectedMonth === 1) {
+      setSelectedMonth(12)
+      setSelectedYear(y => y - 1)
+    } else {
+      setSelectedMonth(m => m - 1)
+    }
+  }
+
+  const goToNextMonth = () => {
+    // Don't go beyond current month
+    if (isCurrentMonth) return
+    if (selectedMonth === 12) {
+      setSelectedMonth(1)
+      setSelectedYear(y => y + 1)
+    } else {
+      setSelectedMonth(m => m + 1)
+    }
+  }
+
+  // ─── Monthly Summary (UPDATED to use selectedMonth) ───────────────────────
   const { monthLabel, monthTotal } = useMemo(() => {
-    const now = new Date()
-    const currentMonth = String(now.getMonth() + 1).padStart(2, '0')
-    const currentYear = String(now.getFullYear())
-    const currentMonthStr = `${currentYear}-${currentMonth}`
-
-    const monthExpenses = expenses.filter(e => e.expense_date.startsWith(currentMonthStr))
+    const monthStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
+    const monthExpenses = expenses.filter(e => e.expense_date.startsWith(monthStr))
     const total = monthExpenses.reduce((sum, e) => sum + Number(e.cost), 0)
-    const label = getMonthLabel(`${currentMonth === '12' ? currentYear : currentYear}-${currentMonth}-01`)
+    const label = getMonthLabel(selectedYear, selectedMonth)
     return { monthLabel: label, monthTotal: total }
-  }, [expenses])
+  }, [expenses, selectedYear, selectedMonth])
 
-  // ─── Group expenses by date ───────────────────────────────────────────────
+  // ─── Group expenses by date (UPDATED to filter by selectedMonth) ──────────
   const groupedExpenses = useMemo(() => {
+    const monthStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
+    const filtered = expenses.filter(e => e.expense_date.startsWith(monthStr))
+
     const groups: Record<string, Expense[]> = {}
-    for (const exp of expenses) {
+    for (const exp of filtered) {
       if (!groups[exp.expense_date]) groups[exp.expense_date] = []
       groups[exp.expense_date].push(exp)
     }
-    // Sort dates newest first
     const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a))
     return sortedDates.map(date => ({ date, items: groups[date] }))
-  }, [expenses])
+  }, [expenses, selectedYear, selectedMonth])
 
   // ─── Logout ───────────────────────────────────────────────────────────────
   const handleLogout = async () => {
@@ -228,15 +254,44 @@ export default function DashboardClient({ user, initialExpenses, initialError }:
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-5">
-        {/* ── Monthly Summary ────────────────────────────────────────────── */}
-        <div className="bg-green-50 border border-green-100 rounded-2xl px-5 py-4 flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs text-green-600 font-medium uppercase tracking-wide">This Month</p>
-            <p className="text-lg font-bold text-green-800 mt-0.5">{monthLabel}</p>
+        {/* ── Monthly Summary with Navigation (UPDATED) ──────────────────── */}
+        <div className="bg-green-50 border border-green-100 rounded-2xl px-5 py-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-green-600 font-medium uppercase tracking-wide">
+                {isCurrentMonth ? 'This Month' : 'Viewing Month'}
+              </p>
+              <p className="text-lg font-bold text-green-800 mt-0.5">{monthLabel}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Total Spent</p>
+              <p className="text-2xl font-bold text-green-700 mt-0.5">{formatCurrency(monthTotal)}</p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Total Spent</p>
-            <p className="text-2xl font-bold text-green-700 mt-0.5">{formatCurrency(monthTotal)}</p>
+
+          {/* ── Month Navigation Arrows (NEW) ── */}
+          <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-green-100">
+            <button
+              onClick={goToPrevMonth}
+              className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900 bg-green-100 hover:bg-green-200 px-3 py-1.5 rounded-lg transition-colors font-medium"
+            >
+              ← Prev
+            </button>
+            {!isCurrentMonth && (
+              <button
+                onClick={() => { setSelectedMonth(currentMonth); setSelectedYear(currentYear) }}
+                className="text-xs text-green-600 hover:text-green-800 underline"
+              >
+                Back to Current
+              </button>
+            )}
+            <button
+              onClick={goToNextMonth}
+              disabled={isCurrentMonth}
+              className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900 bg-green-100 hover:bg-green-200 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors font-medium"
+            >
+              Next →
+            </button>
           </div>
         </div>
 
@@ -247,46 +302,50 @@ export default function DashboardClient({ user, initialExpenses, initialError }:
           </div>
         )}
 
-        {/* ── Add Expense Form ───────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-          <h2 className="text-base font-semibold text-gray-800 mb-4">Add Expense</h2>
-          <form onSubmit={handleAddExpense} className="space-y-3">
-            <div className="flex gap-3">
-              <input
-                type="text"
-                placeholder="Item name"
-                value={newItem}
-                onChange={e => setNewItem(e.target.value)}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-              />
-              <div className="relative w-36">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+        {/* ── Add Expense Form (only shown for current month) ────────────── */}
+        {isCurrentMonth && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="text-base font-semibold text-gray-800 mb-4">Add Expense</h2>
+            <form onSubmit={handleAddExpense} className="space-y-3">
+              <div className="flex gap-3">
                 <input
-                  type="number"
-                  placeholder="0"
-                  min="0"
-                  step="0.01"
-                  value={newCost}
-                  onChange={e => setNewCost(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
+                  type="text"
+                  placeholder="Item name"
+                  value={newItem}
+                  onChange={e => setNewItem(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
                 />
+                <div className="relative w-36">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    min="0"
+                    step="0.01"
+                    value={newCost}
+                    onChange={e => setNewCost(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
+                  />
+                </div>
               </div>
-            </div>
-            {addError && <p className="text-red-500 text-xs">{addError}</p>}
-            <button
-              type="submit"
-              disabled={adding}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors"
-            >
-              {adding ? 'Adding…' : '+ Add Expense'}
-            </button>
-          </form>
-        </div>
+              {addError && <p className="text-red-500 text-xs">{addError}</p>}
+              <button
+                type="submit"
+                disabled={adding}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors"
+              >
+                {adding ? 'Adding…' : '+ Add Expense'}
+              </button>
+            </form>
+          </div>
+        )}
 
         {/* ── Expense List ───────────────────────────────────────────────── */}
         {groupedExpenses.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-10 text-center">
-            <p className="text-gray-400 text-sm">No expenses yet. Add your first one above!</p>
+            <p className="text-gray-400 text-sm">
+              {isCurrentMonth ? 'No expenses yet. Add your first one above!' : 'No expenses recorded for this month.'}
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -353,7 +412,7 @@ export default function DashboardClient({ user, initialExpenses, initialError }:
                             <span className="text-sm text-gray-800 flex-1">{exp.item_name}</span>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold text-gray-800">{formatCurrency(Number(exp.cost))}</span>
-                              {isToday && (
+                              {isToday && isCurrentMonth && (
                                 <>
                                   <button
                                     onClick={() => startEdit(exp)}
